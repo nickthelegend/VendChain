@@ -13,7 +13,7 @@ import { AlgorandClient } from '@algorandfoundation/algokit-utils'
 import { MachineContractClient } from '../../../clients/client'
 import algosdk from 'algosdk'
 import { supabase } from '@/lib/supabase'
-
+import React from "react"
 interface MachineDetails {
   id: string
   machine_contract_address: string
@@ -35,6 +35,8 @@ export default function MachinePayPage() {
   const [error, setError] = useState<string | null>(null)
   const [showConfetti, setShowConfetti] = useState(false)
   const [transactionComplete, setTransactionComplete] = useState(false)
+  const [isSliding, setIsSliding] = useState(false)
+  const [slidePosition, setSlidePosition] = useState(0)
 
   useEffect(() => {
     if (!activeAccount) {
@@ -69,6 +71,22 @@ export default function MachinePayPage() {
     }
 
     fetchMachine()
+    
+    // Send connection packet
+    const channel = supabase.channel(`machine-${machineId}`)
+    channel.subscribe((status) => {
+      if (status === 'SUBSCRIBED') {
+        channel.send({
+          type: 'broadcast',
+          event: 'connection',
+          payload: { status: 'connected', machineId }
+        })
+      }
+    })
+    
+    return () => {
+      supabase.removeChannel(channel)
+    }
   }, [activeAccount, machineId])
 
   const handleNumberClick = (num: string) => {
@@ -98,12 +116,7 @@ export default function MachinePayPage() {
     setAmount("100")
   }
 
-  const handlePlaceOrder = async () => {
-    if (!amount || Number.parseFloat(amount) <= 0) {
-      setError("Please enter a valid amount")
-      return
-    }
-    
+  const handleSlideComplete = async () => {
     if (!activeAddress || !transactionSigner || !algorand || !machineDetails) {
       setError("Wallet not connected or machine not loaded")
       return
@@ -113,51 +126,34 @@ export default function MachinePayPage() {
       setLoading(true)
       setError(null)
 
-      console.log("=== PAYMENT DEBUG INFO ===")
-      console.log("Input amount:", amount)
-      console.log("Parsed amount:", Number.parseFloat(amount))
-      console.log("Machine price:", machineDetails.price)
-      console.log("Machine contract address:", machineDetails.machine_contract_address)
-      console.log("Active address:", activeAddress)
-
-      // Get the smart contract app ID from machine_contract_address
       const appId = BigInt(machineDetails.machine_contract_address)
       const appAddress = algosdk.getApplicationAddress(appId)
-      console.log("App ID:", appId.toString())
-      console.log("App address:", appAddress)
 
-      // Create the typed client
       const client = algorand.client.getTypedAppClientById(MachineContractClient, {
         appId: appId,
         defaultSigner: transactionSigner,
         defaultSender: activeAddress,
       })
 
-      // Use the exact machine price instead of user input
-      const paymentAmount = machineDetails.price
-      console.log("Payment amount (ALGO):", paymentAmount)
-      console.log("Payment amount (microALGO):", paymentAmount * 1000000)
-
-      // Create payment transaction with exact machine price
       const paymentTxn = await algorand.createTransaction.payment({
         sender: activeAddress,
         receiver: appAddress,
-        amount: (paymentAmount).algo(),
+        amount: (machineDetails.price).algo(),
       })
 
-      console.log("Payment transaction created:", {
-        
-        amount: paymentTxn
-      })
-
-      // Call the smart contract pay method
       const result = await client.send.pay({
         args: [paymentTxn],
         sender: activeAddress,
         signer: transactionSigner
       })
 
-      console.log("Payment successful, txn ID:", result.txIds[0])
+      // Broadcast payment approved
+      const channel = supabase.channel(`machine-${machineId}`)
+      await channel.send({
+        type: 'broadcast',
+        event: 'payment_approved',
+        payload: { txnId: result.txIds[0], machineId }
+      })
       
       setShowConfetti(true)
       setTransactionComplete(true)
@@ -171,8 +167,80 @@ export default function MachinePayPage() {
       console.error('Payment failed:', err)
       setError(`Payment failed: ${err.message}`)
       setLoading(false)
+      setSlidePosition(0)
+      setIsSliding(false)
     }
   }
+
+  const handleSlideStart = (e: React.MouseEvent | React.TouchEvent) => {
+    e.preventDefault()
+    setIsSliding(true)
+  }
+
+  const handleSlideMove = (e: React.MouseEvent | React.TouchEvent) => {
+    if (!isSliding || transactionComplete || loading) return
+    
+    const slider = e.currentTarget.parentElement
+    if (!slider) return
+    
+    const rect = slider.getBoundingClientRect()
+    const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX
+    const position = Math.max(0, Math.min(rect.width - 60, clientX - rect.left - 30))
+    setSlidePosition(position)
+    
+    if (position >= rect.width - 80) {
+      setIsSliding(false)
+      handleSlideComplete()
+    }
+  }
+
+  const handleSlideEnd = () => {
+    if (!transactionComplete && !loading) {
+      setSlidePosition(0)
+    }
+    setIsSliding(false)
+  }
+
+  // Global mouse/touch move and end handlers
+  React.useEffect(() => {
+    const handleGlobalMove = (e: MouseEvent | TouchEvent) => {
+      if (isSliding) {
+        const slider = document.querySelector('.slide-container')
+        if (!slider) return
+        
+        const rect = slider.getBoundingClientRect()
+        const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX
+        const position = Math.max(0, Math.min(rect.width - 60, clientX - rect.left - 30))
+        setSlidePosition(position)
+        
+        if (position >= rect.width - 80) {
+          setIsSliding(false)
+          handleSlideComplete()
+        }
+      }
+    }
+
+    const handleGlobalEnd = () => {
+      if (isSliding && !transactionComplete && !loading) {
+        setSlidePosition(0)
+      }
+      setIsSliding(false)
+    }
+
+    if (isSliding) {
+      document.addEventListener('mousemove', handleGlobalMove)
+      document.addEventListener('mouseup', handleGlobalEnd)
+      document.addEventListener('touchmove', handleGlobalMove)
+      document.addEventListener('touchend', handleGlobalEnd)
+    }
+
+    return () => {
+      document.removeEventListener('mousemove', handleGlobalMove)
+      document.removeEventListener('mouseup', handleGlobalEnd)
+      document.removeEventListener('touchmove', handleGlobalMove)
+      document.removeEventListener('touchend', handleGlobalEnd)
+    }
+  }, [isSliding, transactionComplete, loading])
 
   if (!activeAccount) {
     return (
@@ -229,21 +297,7 @@ export default function MachinePayPage() {
       </div>
 
       <div className="container max-w-2xl mx-auto">
-        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
-          <Card className="bg-slate-800 border-orange-500/20 p-6 mb-8">
-            <h2 className="text-2xl font-bold text-white mb-2">Machine Payment</h2>
-            <div className="space-y-4">
-              <div className="bg-slate-700 rounded-lg p-4">
-                <p className="text-gray-400 text-sm">Contract Address</p>
-                <p className="text-white font-mono text-sm break-all">{machineDetails.machine_contract_address}</p>
-              </div>
-              <div className="bg-slate-700 rounded-lg p-4">
-                <p className="text-gray-400 text-sm">Price</p>
-                <p className="text-orange-400 text-2xl font-bold">{machineDetails.price} ALGO</p>
-              </div>
-            </div>
-          </Card>
-        </motion.div>
+
 
         <motion.div
           initial={{ opacity: 0, y: 20 }}
@@ -289,14 +343,24 @@ export default function MachinePayPage() {
               </p>
             </div>
 
-            {/* Place Order button */}
-            <Button
-              onClick={handlePlaceOrder}
-              disabled={transactionComplete || loading}
-              className="w-full bg-gradient-to-r from-orange-500 to-orange-600 hover:from-orange-600 hover:to-orange-700 disabled:opacity-50 text-white font-semibold py-3 rounded-lg transition-all"
-            >
-              {loading ? "Processing..." : transactionComplete ? "Payment Complete ✓" : "Pay to Smart Contract"}
-            </Button>
+            {/* Slide to Pay */}
+            <div className="relative bg-slate-700 rounded-full h-16 mb-4 overflow-hidden slide-container">
+              <div className="absolute inset-0 flex items-center justify-center text-white font-semibold">
+                {loading ? "Processing..." : transactionComplete ? "Payment Complete ✓" : "Slide to Pay"}
+              </div>
+              <div 
+                className="absolute left-2 top-2 w-12 h-12 bg-gradient-to-r from-orange-500 to-orange-600 rounded-full cursor-grab active:cursor-grabbing flex items-center justify-center select-none"
+                style={{ 
+                  transform: `translateX(${slidePosition}px)`,
+                  transition: isSliding ? 'none' : 'transform 0.2s ease-out'
+                }}
+                onMouseDown={handleSlideStart}
+                onTouchStart={handleSlideStart}
+                draggable={false}
+              >
+                <span className="text-white text-xl pointer-events-none">→</span>
+              </div>
+            </div>
 
             {error && <p className="text-red-400 text-sm mt-4 text-center">{error}</p>}
           </Card>
