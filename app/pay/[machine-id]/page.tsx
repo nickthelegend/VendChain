@@ -9,6 +9,9 @@ import { motion } from "framer-motion"
 import { ChevronLeft, HelpCircle } from "lucide-react"
 import Link from "next/link"
 import Confetti from "react-confetti"
+import { AlgorandClient } from '@algorandfoundation/algokit-utils'
+import { MachineContractClient } from '../../../clients/client'
+import algosdk from 'algosdk'
 
 interface MachineDetails {
   id: string
@@ -18,11 +21,12 @@ interface MachineDetails {
 }
 
 export default function MachinePayPage() {
-  const { activeAccount } = useWallet()
+  const { activeAccount, transactionSigner, activeAddress } = useWallet()
   const router = useRouter()
   const params = useParams()
   const searchParams = useSearchParams()
   const machineId = params["machine-id"] as string
+  const [algorand, setAlgorand] = useState<AlgorandClient | null>(null)
 
   const [machineDetails, setMachineDetails] = useState<MachineDetails | null>(null)
   const [amount, setAmount] = useState("")
@@ -36,6 +40,10 @@ export default function MachinePayPage() {
       setLoading(false)
       return
     }
+
+    // Initialize Algorand client
+    const client = AlgorandClient.testNet()
+    setAlgorand(client)
 
     const fetchMachine = async () => {
       try {
@@ -84,22 +92,80 @@ export default function MachinePayPage() {
     setAmount("100")
   }
 
-  const handlePlaceOrder = () => {
+  const handlePlaceOrder = async () => {
     if (!amount || Number.parseFloat(amount) <= 0) {
       setError("Please enter a valid amount")
       return
     }
-    console.log("Payment initiated for", amount, "ALGO", "Machine:", machineDetails.id)
+    
+    if (!activeAddress || !transactionSigner || !algorand || !machineDetails) {
+      setError("Wallet not connected or machine not loaded")
+      return
+    }
 
-    setShowConfetti(true)
-    setTransactionComplete(true)
+    try {
+      setLoading(true)
+      setError(null)
 
-    // Auto-hide confetti after 3 seconds
-    setTimeout(() => {
-      setShowConfetti(false)
-    }, 3000)
+      console.log("=== PAYMENT DEBUG INFO ===")
+      console.log("Input amount:", amount)
+      console.log("Parsed amount:", Number.parseFloat(amount))
+      console.log("Machine price:", machineDetails.price)
+      console.log("Machine contract address:", machineDetails.machine_contract_address)
+      console.log("Active address:", activeAddress)
 
-    // In production, initiate actual payment transaction
+      // Get the smart contract app ID from machine_contract_address
+      const appId = BigInt(machineDetails.machine_contract_address)
+      const appAddress = algosdk.getApplicationAddress(appId)
+      console.log("App ID:", appId.toString())
+      console.log("App address:", appAddress)
+
+      // Create the typed client
+      const client = algorand.client.getTypedAppClientById(MachineContractClient, {
+        appId: appId,
+        defaultSigner: transactionSigner,
+        defaultSender: activeAddress,
+      })
+
+      // Use the exact machine price instead of user input
+      const paymentAmount = machineDetails.price
+      console.log("Payment amount (ALGO):", paymentAmount)
+      console.log("Payment amount (microALGO):", paymentAmount * 1000000)
+
+      // Create payment transaction with exact machine price
+      const paymentTxn = await algorand.createTransaction.payment({
+        sender: activeAddress,
+        receiver: appAddress,
+        amount: (paymentAmount).algo(),
+      })
+
+      console.log("Payment transaction created:", {
+        
+        amount: paymentTxn
+      })
+
+      // Call the smart contract pay method
+      const result = await client.send.pay({
+        args: [paymentTxn],
+        sender: activeAddress,
+        signer: transactionSigner
+      })
+
+      console.log("Payment successful, txn ID:", result.txIds[0])
+      
+      setShowConfetti(true)
+      setTransactionComplete(true)
+      setLoading(false)
+
+      setTimeout(() => {
+        setShowConfetti(false)
+      }, 3000)
+
+    } catch (err) {
+      console.error('Payment failed:', err)
+      setError(`Payment failed: ${err.message}`)
+      setLoading(false)
+    }
   }
 
   if (!activeAccount) {
@@ -199,8 +265,8 @@ export default function MachinePayPage() {
 
             {/* Amount display */}
             <div className="text-center mb-8">
-              <div className="text-5xl font-bold text-orange-500 mb-2">{amount || "0"}</div>
-              <div className="text-gray-400 text-sm">ALGO</div>
+              <div className="text-5xl font-bold text-orange-500 mb-2">{machineDetails.price}</div>
+              <div className="text-gray-400 text-sm">ALGO (Fixed Price)</div>
               <p className="text-gray-500 text-xs mt-4">Available Balance: 1000 ALGO</p>
             </div>
 
@@ -210,70 +276,20 @@ export default function MachinePayPage() {
               <p className="text-gray-300 text-sm">Your Transaction Limit: 500 ALGO</p>
             </div>
 
-            {/* Numeric keypad */}
-            <div className="grid grid-cols-3 gap-3 mb-6">
-              {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((num) => (
-                <button
-                  key={num}
-                  onClick={() => handleNumberClick(num.toString())}
-                  disabled={transactionComplete}
-                  className="bg-slate-700 hover:bg-slate-600 disabled:opacity-50 text-white font-semibold py-4 rounded-lg transition-colors text-lg"
-                >
-                  {num}
-                </button>
-              ))}
-            </div>
-
-            {/* Bottom row: decimal, 0, backspace */}
-            <div className="grid grid-cols-3 gap-3 mb-6">
-              <button
-                onClick={() => handleNumberClick(".")}
-                disabled={transactionComplete}
-                className="bg-slate-700 hover:bg-slate-600 disabled:opacity-50 text-white font-semibold py-4 rounded-lg transition-colors text-lg"
-              >
-                .
-              </button>
-              <button
-                onClick={() => handleNumberClick("0")}
-                disabled={transactionComplete}
-                className="bg-slate-700 hover:bg-slate-600 disabled:opacity-50 text-white font-semibold py-4 rounded-lg transition-colors text-lg"
-              >
-                0
-              </button>
-              <button
-                onClick={handleBackspace}
-                disabled={transactionComplete}
-                className="bg-slate-700 hover:bg-slate-600 disabled:opacity-50 text-white font-semibold py-4 rounded-lg transition-colors"
-              >
-                ⌫
-              </button>
-            </div>
-
-            {/* Max and Clear buttons */}
-            <div className="grid grid-cols-2 gap-3 mb-6">
-              <button
-                onClick={handleMax}
-                disabled={transactionComplete}
-                className="bg-slate-700 hover:bg-slate-600 disabled:opacity-50 text-orange-400 font-semibold py-3 rounded-lg transition-colors"
-              >
-                Max
-              </button>
-              <button
-                onClick={handleClear}
-                disabled={transactionComplete}
-                className="bg-slate-700 hover:bg-slate-600 disabled:opacity-50 text-orange-400 font-semibold py-3 rounded-lg transition-colors"
-              >
-                Clear
-              </button>
+            {/* Fixed price info */}
+            <div className="bg-slate-900 rounded-lg p-4 mb-6 border border-orange-500/30">
+              <p className="text-gray-300 text-sm text-center">
+                This machine has a fixed price of <span className="text-orange-400 font-bold">{machineDetails.price} ALGO</span>
+              </p>
             </div>
 
             {/* Place Order button */}
             <Button
               onClick={handlePlaceOrder}
-              disabled={transactionComplete}
+              disabled={transactionComplete || loading}
               className="w-full bg-gradient-to-r from-orange-500 to-orange-600 hover:from-orange-600 hover:to-orange-700 disabled:opacity-50 text-white font-semibold py-3 rounded-lg transition-all"
             >
-              {transactionComplete ? "Order Placed ✓" : "Place Order"}
+              {loading ? "Processing..." : transactionComplete ? "Payment Complete ✓" : "Pay to Smart Contract"}
             </Button>
 
             {error && <p className="text-red-400 text-sm mt-4 text-center">{error}</p>}
