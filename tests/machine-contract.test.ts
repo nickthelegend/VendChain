@@ -1,5 +1,5 @@
 import { AlgorandClient, Config } from '@algorandfoundation/algokit-utils';
-import { MachineContractClient, MachineContractFactory } from '../client/client';
+import { MachineContractClient, MachineContractFactory } from '../clients/client';
 import algosdk, { OnApplicationComplete } from 'algosdk';
 import { AlgoAmount } from '@algorandfoundation/algokit-utils/types/amount';
 
@@ -59,28 +59,39 @@ console.log(mnemonics)
     console.log('Deployed MachineContract App ID:', appClient.appId);
   });
 
-  // it('should interact with deployed contract', async () => {
-  //   // Deploy first
-  //   const factory = algorand.client.getTypedAppFactory(MachineContractClient, {
-  //     creatorAddress: deployer.addr,
-  //     defaultSender: deployer.addr,
-  //   });
 
-  //   const { appClient } = await factory.send.create.createApplication({
-  //     args: {
-  //       ownerAddress: deployer.addr,
-  //       fixedPricing: 500000n // 0.5 ALGO
-  //     },
-  //     sender: deployer,
-  //   });
 
-  //   // Test price change
-  //   await appClient.send.changePrice({
-  //     args: { pricing: 750000n }, // 0.75 ALGO
-  //     sender: deployer,
-  //   });
 
-  //   console.log('Successfully changed price on App ID:', appClient.appId);
-  //   expect(appClient.appId).toBeDefined();
-  // });
+  it('should interact with deployed contract', async () => {
+    // Deploy first
+
+    const signer = algosdk.makeBasicAccountTransactionSigner(deployer)
+
+    const client = algorand.client.getTypedAppClientById(MachineContractClient, {
+      appId: BigInt(748111127),
+      defaultSigner: signer,
+      defaultSender: deployer.addr,
+    });
+
+    const appAddress = algosdk.getApplicationAddress(BigInt(748111127)); // Replace with your app ID
+
+    const paymentTxn = await algorand.createTransaction.payment({
+      sender: deployer.addr,
+      receiver: appAddress, // Replace with the intended receiver
+      amount: (3).algo(),           // 0.75 ALGO
+    });
+    
+    // Step 2: Call the ABI method, passing the payment transaction as the argument
+    const result = await client.send.pay({
+      args: [paymentTxn], // Pass the payment transaction as the argument
+      sender: deployer.addr,
+      signer: signer
+    });
+    // Test price change
+    const txnId = result.txIds[0]; // The first transaction ID in the group
+
+
+    
+    expect(txnId).toBeDefined();
+  });
 });
