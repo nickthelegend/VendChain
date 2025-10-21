@@ -18,6 +18,7 @@
     "@hookform/resolvers": "^3.9.1",
     "@magic-ext/algorand": "latest",
     "@perawallet/connect": "latest",
+    "@prisma/client": "^6.17.1",
     "@radix-ui/react-accordion": "1.2.2",
     "@radix-ui/react-alert-dialog": "1.1.4",
     "@radix-ui/react-aspect-ratio": "1.1.1",
@@ -66,6 +67,7 @@
     "magic-sdk": "latest",
     "next": "14.2.16",
     "next-themes": "latest",
+    "prisma": "^6.17.1",
     "react": "^18",
     "react-confetti": "latest",
     "react-day-picker": "9.8.0",
@@ -85,11 +87,14 @@
     "zod": "^3.24.1"
   },
   "devDependencies": {
+    "@types/jest": "^29.5.0",
     "@types/node": "^22",
     "@types/react": "^18",
     "@types/react-dom": "^18",
+    "jest": "^29.7.0",
     "postcss": "^8.5",
     "tailwindcss": "^3.4.17",
+    "ts-jest": "^29.1.0",
     "typescript": "^5"
   }
 }

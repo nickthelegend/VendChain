@@ -12,13 +12,9 @@ import Confetti from "react-confetti"
 
 interface MachineDetails {
   id: string
-  name: string
-  location: string
-  items: Array<{
-    id: string
-    name: string
-    price: number
-  }>
+  machine_contract_address: string
+  price: number
+  api_key: string
 }
 
 export default function MachinePayPage() {
@@ -35,59 +31,31 @@ export default function MachinePayPage() {
   const [showConfetti, setShowConfetti] = useState(false)
   const [transactionComplete, setTransactionComplete] = useState(false)
 
-  const urlPrice = searchParams.get("price")
-  const urlItem = searchParams.get("item")
-
   useEffect(() => {
     if (!activeAccount) {
       setLoading(false)
       return
     }
 
-    try {
-      // Decode base64 machine ID
-      const decodedId = Buffer.from(machineId, "base64").toString("utf-8")
-      console.log("[v0] Decoded machine ID:", decodedId)
-
-      // Mock machine details - in production, fetch from API
-      const mockMachines: Record<string, MachineDetails> = {
-        "machine-001": {
-          id: "machine-001",
-          name: "Downtown Vending Machine",
-          location: "123 Main Street, Downtown",
-          items: [
-            { id: "1", name: "Soda", price: 2.5 },
-            { id: "2", name: "Snacks", price: 1.5 },
-            { id: "3", name: "Water", price: 1.0 },
-            { id: "4", name: "Coffee", price: 3.0 },
-          ],
-        },
-        "machine-002": {
-          id: "machine-002",
-          name: "Airport Terminal Vending",
-          location: "Terminal 2, Gate A5",
-          items: [
-            { id: "1", name: "Premium Snacks", price: 4.0 },
-            { id: "2", name: "Energy Drink", price: 3.5 },
-            { id: "3", name: "Sandwich", price: 6.0 },
-          ],
-        },
+    const fetchMachine = async () => {
+      try {
+        const response = await fetch(`/api/machines/${machineId}`)
+        if (!response.ok) {
+          throw new Error('Machine not found')
+        }
+        const machine = await response.json()
+        setMachineDetails(machine)
+        setAmount(machine.price.toString())
+        setLoading(false)
+      } catch (err) {
+        console.error('Error fetching machine:', err)
+        setError('Machine not found')
+        setLoading(false)
       }
-
-      const machine = mockMachines[decodedId] || mockMachines["machine-001"]
-      setMachineDetails(machine)
-
-      if (urlPrice) {
-        setAmount(urlPrice)
-      }
-
-      setLoading(false)
-    } catch (err) {
-      console.error("[v0] Error decoding machine ID:", err)
-      setError("Invalid machine ID")
-      setLoading(false)
     }
-  }, [activeAccount, machineId, urlPrice])
+
+    fetchMachine()
+  }, [activeAccount, machineId])
 
   const handleNumberClick = (num: string) => {
     if (transactionComplete) return
@@ -121,7 +89,7 @@ export default function MachinePayPage() {
       setError("Please enter a valid amount")
       return
     }
-    console.log("[v0] Payment initiated for", amount, "ALGO", "Item:", urlItem || "Unknown")
+    console.log("Payment initiated for", amount, "ALGO", "Machine:", machineDetails.id)
 
     setShowConfetti(true)
     setTransactionComplete(true)
@@ -191,22 +159,15 @@ export default function MachinePayPage() {
       <div className="container max-w-2xl mx-auto">
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
           <Card className="bg-slate-800 border-orange-500/20 p-6 mb-8">
-            <h2 className="text-2xl font-bold text-white mb-2">{machineDetails.name}</h2>
-            <p className="text-gray-400 mb-6">{machineDetails.location}</p>
-
-            <div className="space-y-3">
-              <h3 className="text-orange-500 font-semibold text-lg">Available Items:</h3>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                {machineDetails.items.map((item) => (
-                  <motion.div
-                    key={item.id}
-                    whileHover={{ scale: 1.05 }}
-                    className="bg-gradient-to-br from-slate-700 to-slate-900 rounded-lg p-4 border border-orange-500/30 hover:border-orange-500/60 transition-all cursor-pointer"
-                  >
-                    <p className="text-white font-semibold text-base">{item.name}</p>
-                    <p className="text-orange-400 text-lg font-bold mt-2">{item.price} ALGO</p>
-                  </motion.div>
-                ))}
+            <h2 className="text-2xl font-bold text-white mb-2">Machine Payment</h2>
+            <div className="space-y-4">
+              <div className="bg-slate-700 rounded-lg p-4">
+                <p className="text-gray-400 text-sm">Contract Address</p>
+                <p className="text-white font-mono text-sm break-all">{machineDetails.machine_contract_address}</p>
+              </div>
+              <div className="bg-slate-700 rounded-lg p-4">
+                <p className="text-gray-400 text-sm">Price</p>
+                <p className="text-orange-400 text-2xl font-bold">{machineDetails.price} ALGO</p>
               </div>
             </div>
           </Card>
@@ -223,7 +184,7 @@ export default function MachinePayPage() {
               <div className="text-center mb-6 p-4 bg-green-500/20 border border-green-500/50 rounded-lg">
                 <p className="text-green-400 font-semibold">✓ Transaction Complete!</p>
                 <p className="text-green-300 text-sm mt-1">
-                  {urlItem ? `You ordered: ${urlItem}` : "Your order has been placed"}
+                  Payment of {amount} ALGO completed
                 </p>
               </div>
             )}
@@ -232,9 +193,7 @@ export default function MachinePayPage() {
             <div className="bg-slate-900 rounded-lg p-4 mb-6 border border-orange-500/30 flex gap-3">
               <div className="w-2 h-2 bg-orange-500 rounded-full mt-1 flex-shrink-0" />
               <p className="text-gray-300 text-sm">
-                {urlItem
-                  ? `Paying for: ${urlItem}`
-                  : "Please ask the vendor for the bill amount only. Don't ask for a QR yet."}
+                Payment for machine: {machineDetails.id}
               </p>
             </div>
 
