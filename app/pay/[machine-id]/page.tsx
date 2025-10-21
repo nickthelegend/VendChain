@@ -12,6 +12,7 @@ import Confetti from "react-confetti"
 import { AlgorandClient } from '@algorandfoundation/algokit-utils'
 import { MachineContractClient } from '../../../clients/client'
 import algosdk from 'algosdk'
+import { supabase } from '@/lib/supabase'
 
 interface MachineDetails {
   id: string
@@ -47,11 +48,16 @@ export default function MachinePayPage() {
 
     const fetchMachine = async () => {
       try {
-        const response = await fetch(`/api/machines/${machineId}`)
-        if (!response.ok) {
+        const { data: machine, error } = await supabase
+          .from('machines')
+          .select('*')
+          .eq('id', machineId)
+          .single()
+
+        if (error || !machine) {
           throw new Error('Machine not found')
         }
-        const machine = await response.json()
+        
         setMachineDetails(machine)
         setAmount(machine.price.toString())
         setLoading(false)
