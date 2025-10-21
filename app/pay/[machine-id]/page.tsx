@@ -32,6 +32,7 @@ export default function MachinePayPage() {
   const [machineDetails, setMachineDetails] = useState<MachineDetails | null>(null)
   const [amount, setAmount] = useState("")
   const [loading, setLoading] = useState(true)
+  const [processing, setProcessing] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [showConfetti, setShowConfetti] = useState(false)
   const [transactionComplete, setTransactionComplete] = useState(false)
@@ -123,7 +124,7 @@ export default function MachinePayPage() {
     }
 
     try {
-      setLoading(true)
+      setProcessing(true)
       setError(null)
 
       const appId = BigInt(machineDetails.machine_contract_address)
@@ -157,7 +158,7 @@ export default function MachinePayPage() {
       
       setShowConfetti(true)
       setTransactionComplete(true)
-      setLoading(false)
+      setProcessing(false)
 
       setTimeout(() => {
         setShowConfetti(false)
@@ -166,7 +167,7 @@ export default function MachinePayPage() {
     } catch (err) {
       console.error('Payment failed:', err)
       setError(`Payment failed: ${err.message}`)
-      setLoading(false)
+      setProcessing(false)
       setSlidePosition(0)
       setIsSliding(false)
     }
@@ -178,7 +179,7 @@ export default function MachinePayPage() {
   }
 
   const handleSlideMove = (e: React.MouseEvent | React.TouchEvent) => {
-    if (!isSliding || transactionComplete || loading) return
+    if (!isSliding || transactionComplete || processing) return
     
     const slider = e.currentTarget.parentElement
     if (!slider) return
@@ -195,7 +196,7 @@ export default function MachinePayPage() {
   }
 
   const handleSlideEnd = () => {
-    if (!transactionComplete && !loading) {
+    if (!transactionComplete && !processing) {
       setSlidePosition(0)
     }
     setIsSliding(false)
@@ -221,7 +222,7 @@ export default function MachinePayPage() {
     }
 
     const handleGlobalEnd = () => {
-      if (isSliding && !transactionComplete && !loading) {
+      if (isSliding && !transactionComplete && !processing) {
         setSlidePosition(0)
       }
       setIsSliding(false)
@@ -240,7 +241,7 @@ export default function MachinePayPage() {
       document.removeEventListener('touchmove', handleGlobalMove)
       document.removeEventListener('touchend', handleGlobalEnd)
     }
-  }, [isSliding, transactionComplete, loading])
+  }, [isSliding, transactionComplete, processing])
 
   if (!activeAccount) {
     return (
@@ -346,7 +347,7 @@ export default function MachinePayPage() {
             {/* Slide to Pay */}
             <div className="relative bg-slate-700 rounded-full h-16 mb-4 overflow-hidden slide-container">
               <div className="absolute inset-0 flex items-center justify-center text-white font-semibold">
-                {loading ? "Processing..." : transactionComplete ? "Payment Complete ✓" : "Slide to Pay"}
+                {processing ? "Processing..." : transactionComplete ? "Payment Complete ✓" : "Slide to Pay"}
               </div>
               <div 
                 className="absolute left-2 top-2 w-12 h-12 bg-gradient-to-r from-orange-500 to-orange-600 rounded-full cursor-grab active:cursor-grabbing flex items-center justify-center select-none"
